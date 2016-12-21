@@ -11,6 +11,7 @@ class Resident {
 		unsigned int _type;
 	public:
 		Resident(unsigned int type, unsigned int location);
+		void setLocation(unsigned int location);
 		unsigned int getLocation();
 		void setSatisfaction(double satisfaction);
 		double getSatisfaction();
@@ -22,6 +23,10 @@ Resident::Resident(unsigned int type, unsigned int location) {
 	_type = type;
 	_location = location;
 	_satisfaction = 0;
+}
+
+void Resident::setLocation(unsigned int location) {
+	_location = location;
 }
 
 unsigned int Resident::getLocation() {
@@ -142,8 +147,8 @@ class Simulation {
 		unsigned int* _popBreakdown;
 		double _threshold;
 		unsigned int _iteration;
-		std::vector<Resident*> _unsatisfied;
-		std::vector<int> _openLocations;
+		std::vector<unsigned int> _unsatisfied; //locations of unsatisfied residents
+		std::vector<unsigned int> _openLocations;
 	public:
 		Simulation(int h, int w, int nRadius, unsigned int pop, unsigned int numTypes, double* popBreakdown) {
 			_city = new City(h, w, nRadius);
@@ -155,12 +160,15 @@ class Simulation {
 				_popBreakdown[i] = (unsigned int)round(popBreakdown[i]*_population);
 			}
 		};
+		~Simulation() {
+			if(_popBreakdown) delete[] _popBreakdown;
+		}
+		int placeResidents();
 		int initializeSimulation(double threshold);
 		friend std::ostream& operator<< (std::ostream &out, const Simulation &sim);
 };
 
-int Simulation::initializeSimulation(double threshold) {
-	_threshold = threshold;
+int Simulation::placeResidents() {
 
 	// Error checking
 	if(_population >= (_city->_height)*(_city->_width)) {
@@ -203,8 +211,31 @@ int Simulation::initializeSimulation(double threshold) {
 	return 0;
 }
 
+int Simulation::initializeSimulation(double threshold) {
+
+	_threshold = threshold;
+	std::random_device rd;
+	std::mt19937 mt(rd());
+
+	Resident* r = nullptr;
+	//Place in vector by row major order for now
+	for(unsigned int i = 0; i < (_city->_height)*(_city->_width); i++) {
+		if((r = (_city->_map)[i])) {
+			double s = _city->computeSatisfaction(i, r->getType());
+			r->setSatisfaction(s);
+			if(s < _threshold) {
+				_unsatisfied.push_back(i);
+			}
+		} else {
+			_openLocations.push_back(i);
+		}
+	}
+
+	return 0;
+}
+
 std::ostream& operator<< (std::ostream &out, const Simulation &sim) {
-	out << *(sim._city) << "Iteration: " << sim._iteration;
+	out << "Iteration: " << sim._iteration << "\n" << *(sim._city) << "Threshold: " << sim._threshold << " Neighborhood radius: " << sim._city->getNeighborhoodRadius() << "\nUnsatisfied residents: " << sim._unsatisfied.size() << " Open Locations: " << sim._openLocations.size();
 	return out;
 }
 
@@ -212,6 +243,7 @@ int main(int argc, char* argv[]) {
 
 	double popBreakdown[] = {0.5, 0.5};
 	Simulation sim = Simulation(30, 30, 2, 800, 2, popBreakdown);
+	sim.placeResidents();
 	sim.initializeSimulation(0.5);
 
 	std::cout << sim << std::endl;
