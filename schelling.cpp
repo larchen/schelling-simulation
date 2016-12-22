@@ -1,7 +1,7 @@
 #include <iostream>
 #include <cmath>
 #include <vector>
-#include <string.h>
+#include <list>
 #include <random>
 
 class Resident {
@@ -114,7 +114,7 @@ unsigned int City::placeResident(Resident* resident, unsigned int location) {
 		return location;
 	} else {
 		std::cerr << "Resident is nullptr\n";
-		return _height*_width+1;
+		return (unsigned int)(_height*_width+1);
 	}
 }
 
@@ -128,22 +128,6 @@ double City::computeSatisfaction(unsigned int location, unsigned int type) {
 	int y = location/_width;
 	double satisfaction = 0;
 	int count = getNeighborhoodSize(location);
-	// int count = 2*(_nRadius+1)*_nRadius;
-	//
-	// int x_offset = (x-_nRadius) < (_width-x-1-_nRadius)?(x-_nRadius):(_width-x-1-_nRadius);
-	// int y_offset = (y-_nRadius) < (_height-y-1-_nRadius)?(y-_nRadius):(_height-y-1-_nRadius);
-	// int total_offset = x_offset+y_offset;
-	//
-	// if(x_offset < 0) {
-	// 	count -= x_offset*x_offset;
-	// }
-	// if(y_offset < 0) {
-	// 	count -= y_offset*y_offset;
-	// }
-	// if(-total_offset > (_nRadius+1)) {
-	// 	total_offset = (-(_nRadius+1)-total_offset)*(-(_nRadius+1)-total_offset+1)/2;
-	// 	count += total_offset;
-	// }
 
 	Resident *r = nullptr;
 
@@ -159,7 +143,6 @@ double City::computeSatisfaction(unsigned int location, unsigned int type) {
 			if((i == y) && (j == (x-1))) j++;
 		}
 	}
-
 	return satisfaction /= count;
 }
 
@@ -168,8 +151,8 @@ std::ostream& operator<< (std::ostream &out, const City &city)
 	for(int i = 0; i < (city._height)*(city._width); i++) {
         Resident *r;
 		if((r = (city._map)[i])) {
-//			out << (r->getType()) << ((r->isSatisfied())?" ":"U");
-            out << (r->getType()) << " ";
+			out << (r->getType()) << ((r->isSatisfied())?" ":"U");
+//            out << (r->getType()) << " ";
 		} else {
 			out << "X ";
 		}
@@ -186,8 +169,8 @@ class Simulation {
 		unsigned int* _popBreakdown;
 		double _threshold;
 		unsigned int _iteration;
-		std::vector<unsigned int> _unsatisfied; //locations of unsatisfied residents
-		std::vector<unsigned int> _openLocations;
+		std::list<unsigned int> _unsatisfied; //locations of unsatisfied residents
+		std::list<unsigned int> _openLocations;
 	public:
 		Simulation(int h, int w, int nRadius, unsigned int pop, unsigned int numTypes, double* popBreakdown) {
 			_city = new City(h, w, nRadius);
@@ -260,7 +243,7 @@ int Simulation::initializeSimulation(double threshold) {
 	_threshold = threshold;
 
 	Resident* r = nullptr;
-	//Place in vector by row major order for now
+	//Place in list by row major order for now
 	for(unsigned int i = 0; i < (_city->_height)*(_city->_width); i++) {
 		if((r = (_city->_map)[i])) {
 			double s = _city->computeSatisfaction(i, r->getType());
@@ -277,26 +260,33 @@ int Simulation::initializeSimulation(double threshold) {
 }
 
 int Simulation::iterate() {
-	std::vector<unsigned int> tempUnsatisfied;
-	std::vector<unsigned int> tempOpen;
 	unsigned int currentLocation;
 
 	//Longest unsatisfied resident and newest openLocation get priority
 
+    std::list<unsigned int> unsatisfiedNeighbors;
+
 	// Iterating through each unsatisfied resident
-	for(int i = 0; i < _unsatisfied.size(); i++) {
-		currentLocation = _unsatisfied.at(i);
+    std::list<unsigned int>::iterator it_u = _unsatisfied.begin();
+    std::list<unsigned int>::iterator it_uend = _unsatisfied.end();
+    std::list<unsigned int>::iterator it_o;
+    std::list<unsigned int>::iterator it_oend;
+
+	for(it_u; it_u != it_uend; it_u++) {
+		currentLocation = *it_u;
         if(_city->_map[currentLocation] == nullptr) {
-            //std::cerr << "ERROR: _unsatisfied contains nullptr at " << currentLocation << "\n";
-            //return 1;
-            continue;
-        }
-		if(!(_city->_map[currentLocation]->isSatisfied())) {
+            it_u = _unsatisfied.erase(it_u);
+            it_u--;
+
+        } else if(!(_city->_map[currentLocation]->isSatisfied())) {
 			//Finding location that will satisfy resident
-			for(int j = 0; j < _openLocations.size(); j++) {
-				unsigned int newLocation = _openLocations.at(j);
+
+            it_oend = _openLocations.end();
+			for(it_o = _openLocations.begin(); it_o != it_oend; it_o++) {
+				unsigned int newLocation = *it_o;
 				if(_city->_map[newLocation]) {
-					j++;
+                    it_o = _openLocations.erase(it_o);
+                    it_o--;
 				} else {
 					Resident* r = _city->_map[currentLocation];
 					double s = _city->computeSatisfaction(newLocation, r->getType());
@@ -333,9 +323,9 @@ int Simulation::iterate() {
                                         neighbor->setSatisfaction(neighborUnscaledSatisfaction / neighborNSize,
                                                                   _threshold);
 
-                                        // If neighbor is newly unsatisfied, add to tempUnsatisfied
+                                        // If neighbor is newly unsatisfied, add to _unsatisfied
                                         if (!(neighbor->isSatisfied()) && wasSatisfied) {
-                                            tempUnsatisfied.push_back(neighbor->getLocation());
+                                            unsatisfiedNeighbors.push_back(neighbor->getLocation());
                                         }
                                     }
 								}
@@ -362,64 +352,40 @@ int Simulation::iterate() {
 									neighborUnscaledSatisfaction = neighborUnscaledSatisfaction + ((r->getType() == neighbor->getType())?0.5:-0.5);
 									neighbor->setSatisfaction(neighborUnscaledSatisfaction/neighborNSize, _threshold);
 
-									// If neighbor is newly unsatisfied, add to tempUnsatisfied
+									// If neighbor is newly unsatisfied, add to _unsatisfied
 									if(!(neighbor->isSatisfied()) && wasSatisfied) {
-										tempUnsatisfied.push_back(neighbor->getLocation());
+                                        unsatisfiedNeighbors.push_back(neighbor->getLocation());
 									}
 								}
 								if((k == y) && (k == (x-1))) k++;
 							}
 						}
 
-						tempOpen.push_back(currentLocation);
-						//_unsatisfied[i] = newLocation;
+                        it_o = _openLocations.erase(it_o);
+                        it_o--;
+                        _openLocations.push_front(currentLocation);
+                        // Removes relocated resident from unsatisfied list
+                        it_u = _unsatisfied.erase(it_u);
+                        it_u--;
 						break;
 					}
 				}
 			}
 			//No location will satisfy the resident, so we keep them on the list
 		} else {
-			i++;
+            // Resident is already satisfied
+			it_u = _unsatisfied.erase(it_u);
+            it_u--;
 		}
 	}
 
-	// Resetting _openLocation list, newest open locations come first
-	for(int i = 0; i < _openLocations.size(); i++) {
-		// Check if still open
-		if(_city->_map[_openLocations.at(i)] == nullptr) {
-			tempOpen.push_back(_openLocations.at(i));
-		}
-	}
-	_openLocations = tempOpen;
 
-	// Resetting _unsatisfied list, longest unsatisfied resident comes first
-	int newlySatisfiedCount = 0;
-	for(int i = 0; i < _unsatisfied.size(); i++) {
-		Resident* r = _city->_map[_unsatisfied.at(i)];
-        if((r == nullptr) || (r->isSatisfied())) {
-            newlySatisfiedCount++;
-        } else {
-            _unsatisfied[i-newlySatisfiedCount] = _unsatisfied[i];
-        }
-//		if(r == nullptr) {
-//			std::cerr << "ERROR: Resident on _unsatisfied list should not be nullptr\n";
-//            return 1;
-//		}
-//		if(!(r->isSatisfied())) {
-//			_unsatisfied[i-newlySatisfiedCount] = _unsatisfied[i];
-//		} else {
-//			newlySatisfiedCount++;
-//		}
-	}
-	for(int i = 0; i < newlySatisfiedCount; i++) {
-		_unsatisfied.pop_back();
-	}
-	for(int i = 0; i < tempUnsatisfied.size(); i++) {
-        Resident* r = _city->_map[tempUnsatisfied[i]];
+    for(it_u = unsatisfiedNeighbors.begin(); it_u != unsatisfiedNeighbors.end(); it_u++) {
+        Resident *r = _city->_map[*it_u];
         if(r && !(r->isSatisfied())) {
-            _unsatisfied.push_back(r->getLocation());
+            _unsatisfied.push_back(*it_u);
         }
-	}
+    }
 
     _iteration++;
 	// Return 0 on success;
@@ -441,73 +407,20 @@ std::ostream& operator<< (std::ostream &out, const Simulation &sim) {
 
 int main(int argc, char* argv[]) {
 
-	double popBreakdown[] = {0.33, 0.34, 0.33};
-	Simulation sim = Simulation(100, 100, 2, 8500, 3, popBreakdown);
+	double popBreakdown[] = {0.5, 0.5};
+	Simulation sim = Simulation(100, 100, 2, 8500, 2, popBreakdown);
 	sim.placeResidents();
 	sim.initializeSimulation(0.5);
 
 	std::cout << sim << std::endl;
 
-    while(sim.numUnsatisfied()) {
+    while(sim.numUnsatisfied() && (sim.getIteration() < 1000)) {
         if(sim.iterate()) {
             break;
         }
         std::cout << sim << std::endl;
     }
 
-    std::cout << sim << std::endl;
+    std::cout << "The simulation terminated in " << sim.getIteration() << " iteration(s)" << std::endl;
 
-	// int* city = new int[1000];
-	//
-	// memset (city,0,4000);
-	//
-	// int _width = 25;
-	// int _height = 40;
-	//
-	// int _nRadius = 3;
-	// unsigned int location = 899;
-	//
-	// int x = location%_width;
-	// int y = location/_width;
-	//
-	// int i = ((y-_nRadius) > 0)?y-_nRadius:0;
-	// for(; i <= y+_nRadius && i < _height; i++) {
-	// 	int j = ((x-_nRadius+abs(y-i)) > 0?x-_nRadius+abs(y-i):0);
-	// 	for(; j <= x+_nRadius-abs(y-i) && j < _width; j++) {
-	// 		std::cout << j << " ";
-	// 		city[i*_width+j] = 1;
-	// 	}
-	// }
-	//
-	// std::cout << std::endl;
-	//
-	// for(int i = 0; i < 1000; i++) {
-	// 	std::cout << city[i] << " ";
-	// 	if(i%_width == _width-1) std::cout << std::endl;
-	// }
-	//
-	// int count = 2*(_nRadius+1)*_nRadius;
-	//
-	// int x_offset = (x-_nRadius) < (_width-x-1-_nRadius)?(x-_nRadius):(_width-x-1-_nRadius);
-	// int y_offset = (y-_nRadius) < (_height-y-1-_nRadius)?(y-_nRadius):(_height-y-1-_nRadius);
-	// int total_offset = x_offset+y_offset;
-	//
-	// // std::cout << "Initial count: " << count
-	// // << " x_offset: " << x_offset << " y_offset: " << y_offset
-	// // << " total_offset: " << -total_offset
-	// // << " (_nRadius+1): " << (_nRadius+1) << std::endl;
-	//
-	// if(x_offset < 0) {
-	// 	count -= x_offset*x_offset;
-	// }
-	// if(y_offset < 0) {
-	// 	count -= y_offset*y_offset;
-	// }
-	// if(-total_offset > (_nRadius+1)) {
-	// 	total_offset = (-(_nRadius+1)-total_offset)*(-(_nRadius+1)-total_offset+1)/2;
-	// 	std::cout << total_offset << std::endl;
-	// 	count += total_offset;
-	// }
-	//
-	// std::cout << "Neighborhood size: " << count << std::endl;
 }
